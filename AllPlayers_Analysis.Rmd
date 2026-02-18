@@ -1,0 +1,258 @@
+---
+title: "lclapp_ME4320_AllPlayers"
+author: "Lewis Clapp"
+date: "2025-12-02"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(car)
+library(agricolae)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+```
+
+
+Read csv
+```{r}
+AllPlayers<-read.csv("AllPlayers_Data.csv",header=TRUE)
+head(AllPlayers)
+```
+
+Check normallity of Speed with shapiro
+```{r}
+with(AllPlayers,shapiro.test(Speed[Treatment=="A"]))
+
+with(AllPlayers,shapiro.test(Speed[Treatment=="B"]))
+
+with(AllPlayers,shapiro.test(Speed[Treatment=="C"]))
+
+```
+
+Check  Equal variance of speed with Bartlett
+```{r}
+with(AllPlayers,bartlett.test(Speed~Treatment))
+```
+Kruskill Wallis with speed because equal variance assumption cannot be made
+```{r}
+kruskal.test(Speed~Treatment,data=AllPlayers)
+```
+LSD to see which speed mean is different because assumptions cannot be made
+```{r}
+AllPlayersSpeed_aov<-aov(Speed~Treatment,data=AllPlayers)
+ print(LSD.test(AllPlayersSpeed_aov,trt="Treatment",p.adj="bonferroni"))
+```
+
+
+
+Check normallity of rotation with shapiro
+```{r}
+with(AllPlayers,shapiro.test(Rotation[Treatment=="A"]))
+
+with(AllPlayers,shapiro.test(Rotation[Treatment=="B"]))
+
+with(AllPlayers,shapiro.test(Rotation[Treatment=="C"]))
+
+```
+
+
+
+Check  Equal variance of Rotation with Lavenes because normality could not be assumed
+```{r}
+with(AllPlayers,leveneTest(Rotation~Treatment))
+```
+
+
+Kruskill Wallis with Rotation because normality assumption cannot be made
+```{r}
+kruskal.test(Rotation~Treatment,data=AllPlayers)
+```
+
+LSD to see which Rotation mean is different because assumptions could not be made
+```{r}
+AllPlayersRotation_aov<-aov(Rotation~Treatment,data=AllPlayers)
+ print(LSD.test(AllPlayersRotation_aov,trt="Treatment",p.adj="bonferroni"))
+```
+
+
+Check Normality with Energy with Shapiro
+```{r}
+with(AllPlayers,shapiro.test(Energy[Treatment=="A"]))
+
+with(AllPlayers,shapiro.test(Energy[Treatment=="B"]))
+
+with(AllPlayers,shapiro.test(Energy[Treatment=="C"]))
+
+```
+Check  Equal variance of Energy with Lavenes because normality could not be assumed
+```{r}
+with(AllPlayers,leveneTest(Energy~Treatment))
+```
+
+Kruskill Wallis with Energy because normality and equal variance assumptions cannot be made
+```{r}
+kruskal.test(Energy~Treatment,data=AllPlayers)
+```
+LSD to see which Energy mean is different because assumptions could not be made
+```{r}
+AllPlayersEnergy_aov<-aov(Energy~Treatment,data=AllPlayers)
+ print(LSD.test(AllPlayersEnergy_aov,trt="Treatment",p.adj="bonferroni"))
+```
+
+Visualizations
+
+
+Reshape data into long formation
+
+```{r reshape}
+AllPlayers_long <- AllPlayers %>%
+  select(Treatment, Rotation, Speed, Energy) %>%
+  pivot_longer(
+    cols = c(Rotation, Speed, Energy),
+    names_to = "Variable",
+    values_to = "Value"
+  )
+```
+
+Boxplots for Rotation, Speed, and Energy (by Treatment)
+
+
+```{r boxplots, fig.width=8, fig.height=4}
+
+# Significance letters:
+# Long format for plotting
+AllPlayers_long <- AllPlayers %>%
+  select(Treatment, Rotation, Speed, Energy) %>%
+  pivot_longer(
+    cols = c(Rotation, Speed, Energy),
+    names_to = "Variable",
+    values_to = "Value"
+  )
+
+# Desired facet order: Speed → Rotation → Energy
+AllPlayers_long$Variable <- factor(AllPlayers_long$Variable,
+                                   levels = c("Speed", "Rotation", "Energy"))
+
+# Significance letters (only Rotation has sig groups)
+sig_letters <- data.frame(
+  Variable  = c("Rotation", "Rotation", "Rotation"),
+  Treatment = c("A",        "B",        "C"),
+  Letters   = c("b",        "a",        "a")
+)
+
+# Merge letters into long dataframe (Speed/Energy = NA)
+plot_dat <- AllPlayers_long %>%
+  left_join(sig_letters, by = c("Variable", "Treatment"))
+
+# Compute label positions above the boxes
+label_positions <- plot_dat %>%
+  group_by(Variable, Treatment) %>%
+  summarise(y_pos = max(Value, na.rm = TRUE) * 1.05, .groups = "drop")
+
+plot_dat <- plot_dat %>%
+  left_join(label_positions, by = c("Variable", "Treatment"))
+
+# Custom y-axis labels per variable
+y_labels <- c(
+  "Speed"    = "Speed (MPH)",
+  "Rotation" = "Rotation (RPM)",
+  "Energy"   = "Energy (Joules)"
+)
+
+# Boxplots with units + significance letters
+ggplot(plot_dat, aes(x = Treatment, y = Value, fill = Treatment)) +
+  geom_boxplot(alpha = 0.7) +
+  geom_text(
+    aes(y = y_pos, label = Letters),
+    vjust = 0,
+    size  = 5,
+    na.rm = TRUE
+  ) +
+  facet_wrap(~ Variable, scales = "free_y",
+             labeller = labeller(Variable = y_labels)) +
+  labs(
+    title = "Boxplots of Speed, Rotation, and Energy with Significance Groups",
+    x = "Treatment",
+    y = NULL
+  ) +
+  theme_bw() +
+  theme(
+    legend.position = "none",
+    strip.background = element_rect(color = "black", fill = "grey90"),
+    strip.text = element_text(face = "bold")
+  )
+```
+
+
+
+Compute mean and SEM per Treatment per variable
+
+```{r summary_sem}
+summary_sem <- AllPlayers_long %>%
+  group_by(Variable, Treatment) %>%
+  summarise(
+    mean = mean(Value, na.rm = TRUE),
+    sd   = sd(Value, na.rm = TRUE),
+    n    = sum(!is.na(Value)),
+    sem  = sd / sqrt(n),
+    .groups = "drop"
+  )
+summary_sem
+```
+
+
+Mean ± SEM plots for Rotation, Speed, and Energy
+
+
+```{r mean_sem_plots, fig.width=8, fig.height=4}
+summary_sem$Variable <- factor(summary_sem$Variable,
+                               levels = c("Speed", "Rotation", "Energy"))
+
+
+ggplot(summary_sem, aes(x = Treatment, y = mean)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = mean - sem, ymax = mean + sem), width = 0.15) +
+  facet_wrap(
+    ~ Variable,
+    scales = "free_y",
+    labeller = labeller(
+      Variable = c(
+        "Speed" = "Speed (MPH)",
+        "Rotation" = "Rotation (RPM)",
+        "Energy" = "Energy (Joules)"
+      )
+    )
+  ) +
+  labs(
+    title = "Mean ± SEM of Speed, Rotation, and Energy by Treatment",
+    x = "Treatment",
+    y = "Mean ± SEM"
+  ) +
+  theme_bw() +
+  theme(
+    strip.background = element_rect(color = "black", fill = "grey90"),
+    strip.text = element_text(face = "bold")
+  )
+
+```
+
+
+Boxplots of speed vs player
+
+```{r}
+ggplot(AllPlayers, aes(x = factor(Player), y = Speed, fill = factor(Player))) +
+  geom_boxplot() +
+  labs(
+    title = "Distribution of Shot Speed by Player",
+    x = "Player",
+    y = "Speed (MPH)"
+  ) +
+  theme_bw() +
+  theme(
+    legend.position = "none",
+    strip.text = element_text(face = "bold")
+  )
+```
+
